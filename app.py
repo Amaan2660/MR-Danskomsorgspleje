@@ -252,33 +252,33 @@ def generer_pdf(
     pdf.cell(0,6,f"Fakturadato: {date.today().strftime('%d.%m.%Y')}",ln=1)
     pdf.ln(4)
 
-    # Table
+    # Table - FIXED: Adjusted column widths to prevent text wrapping
     cols = ["Dato","Medarbejder","Tidsperiode","Timer","Personale","Jobfunktion","Helligdag","Takst","Samlet"]
-    widths = [18, 40, 24, 10, 18, 22, 18, 12, 18]
+    widths = [18, 37, 23, 10, 18, 20, 14, 12, 18]
 
-    pdf.set_font("Arial","B",9)
+    pdf.set_font("Arial","B",8)
     pdf.set_x(10)
     for h,w in zip(cols, widths):
-        pdf.cell(w,8,h,1)
+        pdf.cell(w,8,h,1,align='C')
     pdf.ln()
 
-    pdf.set_font("Arial","",9)
+    pdf.set_font("Arial","",8)
     total = 0.0
     for _, r in inv.iterrows():
         pdf.set_x(10)
         row = [
             r["Dato"].strftime("%d.%m.%Y"),
-            str(r["Medarbejder"])[:28],
+            str(r["Medarbejder"])[:26],
             r["Tidsperiode"],
             f"{r['Timer']:.1f}",
-            r["Personale"],
-            str(r["Jobfunktion"])[:16],
+            r["Personale"][:12],
+            str(r["Jobfunktion"])[:14],
             r["Helligdag"],
             str(int(r["Takst"])),
             f"{r['Samlet']:.2f}",
         ]
         for v,w in zip(row, widths):
-            pdf.cell(w,8,str(v),1)
+            pdf.cell(w,8,str(v),1,align='C')
         pdf.ln()
         total += float(r["Samlet"])
 
