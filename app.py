@@ -337,7 +337,7 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     pdf.ln(4)
 
     cols = ["Dato","Medarbejder","Tidsperiode","Timer","Personale","Jobfunktion","Helligdag","Takst","Samlet"]
-    widths = [18, 37, 23, 10, 18, 20, 14, 14, 16]  # allow decimals in Takst
+    widths = [18, 32, 22, 10, 16, 30, 14, 14, 14]  # allow decimals in Takst
 
     pdf.set_font("Arial","B",8)
     pdf.set_x(10)
