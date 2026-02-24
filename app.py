@@ -5,7 +5,10 @@ from datetime import date
 from fpdf import FPDF
 import os
 
-st.set_page_config(page_title="MR Fakturagenerator (Ajour + Dansk Omsorgspleje + Dit Vikarbureau)", layout="centered")
+st.set_page_config(
+    page_title="MR Fakturagenerator (Ajour + Dansk Omsorgspleje + Dit Vikarbureau)",
+    layout="centered",
+)
 
 # ---------- Styling ----------
 st.markdown(
@@ -107,10 +110,6 @@ def build_tidsperiode(start, end) -> str:
 
 
 def parse_start_time_to_minutes(tidsperiode: str) -> int:
-    """
-    Parse start time from 'HH:MM-HH:MM' into minutes since 00:00.
-    Returns 0 if missing/bad.
-    """
     try:
         s = str(tidsperiode).split("-")[0].strip()
         hh, mm = s.split(":")
@@ -130,8 +129,6 @@ def time_to_hour(t: str) -> int:
 # BASE CLEANING (used for all)
 # --------------------------------------------------
 def rens_data_base(df: pd.DataFrame) -> pd.DataFrame:
-    # ✅ KEEP DitVikar rows so you can invoice them too
-
     needed = [
         "Dato",
         "Medarbejder",
@@ -201,14 +198,12 @@ def extract_location_dansk(jobfunction):
 
 
 def extract_location_dit(jobfunction):
-    # same display rule as Dansk (change if needed)
     return extract_location_dansk(jobfunction)
 
 
 # --------------------------------------------------
 # RATE LOGIC
 # --------------------------------------------------
-# ✅ KEEP your existing Ajour/AkutVikar logic unchanged
 def beregn_takst_ajour(row) -> int:
     helligdag = row["Helligdag"] == "Ja"
     personale = row["Personale"]
@@ -218,32 +213,36 @@ def beregn_takst_ajour(row) -> int:
     weekend = row["Dato"].weekday() >= 5
 
     if personale == "ufaglært":
-        if helligdag: return 215 if dag else 220
+        if helligdag:
+            return 215 if dag else 220
         return 215 if weekend and dag else 220 if weekend else 175 if dag else 210
 
     if personale == "hjælper":
-        if helligdag: return 215 if dag else 220
+        if helligdag:
+            return 215 if dag else 220
         return 215 if weekend and dag else 220 if weekend else 200 if dag else 210
 
     if personale == "assistent":
-        if helligdag: return 230 if dag else 240
+        if helligdag:
+            return 230 if dag else 240
         return 230 if weekend and dag else 240 if weekend else 220 if dag else 225
 
     return 0
 
 
-# ✅ KEEP your existing Dansk logic unchanged
 def beregn_takst_dansk(row) -> int:
     if row["Helligdag"] == "Ja":
         return 350
+
     weekend = row["Dato"].weekday() >= 5
     if weekend:
         return 300
+
     start_hour = time_to_hour(row["Tidsperiode"].split("-")[0])
     return 280 if start_hour >= 15 else 255
 
 
-# ✅ NEW: DitVikar udbudspriser from your screenshot (excl. moms)
+# DitVikar udbudspriser (fra dit billede)
 DITVIKAR_RATES = {
     "hjælper": {
         "weekday_day": 333.00,
@@ -271,18 +270,16 @@ DITVIKAR_RATES = {
     },
 }
 
+
 def is_day_window(start_min: int) -> bool:
-    """
-    Day window in your price sheet: 06:00–15:00
-    Everything else is evening/night: 15:00–05:00
-    """
+    # Day window: 06:00–15:00
     return 6 * 60 <= start_min < 15 * 60
+
 
 def beregn_takst_dit(row) -> float:
     personale = row["Personale"]
     rates = DITVIKAR_RATES.get(personale)
     if not rates:
-        # If you later add ufaglært prices, put them in DITVIKAR_RATES
         return 0.0
 
     helligdag = row["Helligdag"] == "Ja"
@@ -305,13 +302,18 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=18)
 
+    # Logo
     if os.path.exists("logo.png"):
         pdf.image("logo.png", 10, 5, 30)
 
+    # Faktura nr (top right)
     pdf.set_font("Arial", "B", 20)
     pdf.set_xy(140, 10)
     pdf.cell(60, 10, f"FAKTURA {fakturanr}", align="R")
 
+    # --- Header blocks: use two columns but then move BELOW BOTH blocks safely ---
+
+    # From (left)
     pdf.set_font("Arial", "B", 12)
     pdf.set_xy(10, 40)
     pdf.cell(95, 6, f"Fra: {FROM_INFO['name']}", ln=1)
@@ -320,32 +322,39 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     pdf.set_x(10); pdf.cell(95, 6, f"CVR.nr. {FROM_INFO['cvr']}", ln=1)
     pdf.set_x(10); pdf.cell(95, 6, f"Tlf: {FROM_INFO['phone']}", ln=1)
     pdf.set_x(10); pdf.cell(95, 6, f"Web: {FROM_INFO['web']}", ln=1)
+    y_left_end = pdf.get_y()
 
+    # To (right)
     pdf.set_font("Arial", "B", 12)
     pdf.set_xy(105, 40)
     pdf.cell(95, 6, f"Til: {to_info['title']}", ln=1)
     pdf.set_font("Arial", "", 10)
-    y = pdf.get_y()
     for line in to_info["lines"]:
-        pdf.set_xy(105, y)
+        pdf.set_x(105)
         pdf.cell(95, 6, line, ln=1)
-        y = pdf.get_y()
+    y_right_end = pdf.get_y()
 
-    pdf.ln(4)
+    # ✅ FIX: move cursor below whichever column is taller
+    header_end_y = max(y_left_end, y_right_end)
+    pdf.set_y(header_end_y + 6)
+
+    # Fakturadato (now will never overlap)
     pdf.set_x(10)
     pdf.cell(0, 6, f"Fakturadato: {date.today().strftime('%d.%m.%Y')}", ln=1)
     pdf.ln(4)
 
-    cols = ["Dato","Medarbejder","Tidsperiode","Timer","Personale","Jobfunktion","Helligdag","Takst","Samlet"]
-    widths = [18, 32, 22, 10, 16, 30, 14, 14, 14]  # allow decimals in Takst
+    # Table
+    cols = ["Dato", "Medarbejder", "Tidsperiode", "Timer", "Personale", "Jobfunktion", "Helligdag", "Takst", "Samlet"]
+    # ✅ More space for Jobfunktion so text is visible
+    widths = [18, 30, 20, 10, 15, 35, 12, 14, 14]
 
-    pdf.set_font("Arial","B",8)
+    pdf.set_font("Arial", "B", 8)
     pdf.set_x(10)
-    for h,w in zip(cols, widths):
-        pdf.cell(w,8,h,1,align='C')
+    for h, w in zip(cols, widths):
+        pdf.cell(w, 8, h, 1, align="C")
     pdf.ln()
 
-    pdf.set_font("Arial","",8)
+    pdf.set_font("Arial", "", 8)
     total = 0.0
     for _, r in inv.iterrows():
         pdf.set_x(10)
@@ -355,27 +364,28 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
             r["Tidsperiode"],
             f"{float(r['Timer']):.1f}",
             str(r["Personale"])[:12],
-            str(r["Jobfunktion"])[:14],
+            str(r["Jobfunktion"])[:28],  # allow longer
             r["Helligdag"],
             f"{float(r['Takst']):.2f}",     # ✅ decimals
             f"{float(r['Samlet']):.2f}",
         ]
-        for v,w in zip(row, widths):
-            pdf.cell(w,8,str(v),1,align='C')
+        for v, w in zip(row, widths):
+            pdf.cell(w, 8, str(v), 1, align="C")
         pdf.ln()
         total += float(r["Samlet"])
 
     moms = total * 0.25
     pdf.ln(4)
-    pdf.set_font("Arial","B",10)
-    pdf.cell(0,6,f"Subtotal: {total:.2f} kr",ln=1)
-    pdf.cell(0,6,f"Moms (25%): {moms:.2f} kr",ln=1)
-    pdf.cell(0,6,f"Total inkl. moms: {total+moms:.2f} kr",ln=1)
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 6, f"Subtotal: {total:.2f} kr", ln=1)
+    pdf.cell(0, 6, f"Moms (25%): {moms:.2f} kr", ln=1)
+    pdf.cell(0, 6, f"Total inkl. moms: {total + moms:.2f} kr", ln=1)
 
+    # Footer
     pdf.ln(5)
-    pdf.set_font("Arial","",9)
-    pdf.cell(0,6,BANK_INFO_LINE1,ln=1)
-    pdf.cell(0,6,BANK_INFO_LINE2,ln=1)
+    pdf.set_font("Arial", "", 9)
+    pdf.cell(0, 6, BANK_INFO_LINE1, ln=1)
+    pdf.cell(0, 6, BANK_INFO_LINE2, ln=1)
 
     pdf_bytes = pdf.output(dest="S").encode("latin-1")
     out = BytesIO(pdf_bytes)
@@ -390,13 +400,16 @@ def build_invoice_df(df_customer: pd.DataFrame, helligdage: list[pd.Timestamp], 
     inv = df_customer.copy()
 
     hellig_set = set(pd.to_datetime(helligdage))
-    inv["Helligdag"] = inv["Dato"].dt.normalize().isin([h.normalize() for h in hellig_set]).map({True:"Ja", False:"Nej"})
+    inv["Helligdag"] = inv["Dato"].dt.normalize().isin([h.normalize() for h in hellig_set]).map({True: "Ja", False: "Nej"})
 
     inv["Takst"] = [rate_func(r) for _, r in inv.iterrows()]
     inv["Samlet"] = inv["Timer"] * inv["Takst"]
 
-    inv = inv[["Dato","Medarbejder","Tidsperiode","StartMin","Timer","Personale","Jobfunktion","Helligdag","Takst","Samlet"]].copy()
-    inv = inv.sort_values(["Jobfunktion","Dato","StartMin","Medarbejder"], ascending=[True,True,True,True])
+    inv = inv[
+        ["Dato", "Medarbejder", "Tidsperiode", "StartMin", "Timer", "Personale", "Jobfunktion", "Helligdag", "Takst", "Samlet"]
+    ].copy()
+
+    inv = inv.sort_values(["Jobfunktion", "Dato", "StartMin", "Medarbejder"], ascending=[True, True, True, True])
     inv = inv.drop(columns=["StartMin"])
     return inv
 
@@ -406,7 +419,7 @@ def build_invoice_df(df_customer: pd.DataFrame, helligdage: list[pd.Timestamp], 
 # --------------------------------------------------
 st.title("MR Rekruttering – Fakturagenerator (Ajour Care + Dansk Omsorgspleje + Dit Vikarbureau)")
 
-file = st.file_uploader("Upload vagtplan-fil (Excel)", type=["xlsx","xls"])
+file = st.file_uploader("Upload vagtplan-fil (Excel)", type=["xlsx", "xls"])
 
 c1, c2, c3 = st.columns(3)
 with c1:
@@ -431,7 +444,6 @@ if file:
             afdeling_lower.str.contains(r"dansk\s*omsorgspleje", regex=True, na=False)
         ].copy()
 
-        # Dit Vikarbureau (supports misspelling "buerou" too)
         df_dit = clean[
             afdeling_lower.str.contains(r"dit\s*vikar|ditvikar|dit\s*vikarbureau|dit\s*vikarbuerou", regex=True, na=False)
         ].copy()
@@ -469,7 +481,7 @@ if file:
         if st.button("Generer PDF'er", disabled=not can_generate):
             st.success("PDF'er genereres…")
 
-            # AJOUR / AKUTVIKAR (unchanged rates)
+            # AJOUR / AKUTVIKAR
             if len(df_ajour) > 0:
                 inv_ajour = build_invoice_df(df_ajour, helligdage, beregn_takst_ajour)
 
@@ -488,13 +500,13 @@ if file:
                 pdf_ajour, pdf_ajour_name = generer_pdf(inv_ajour, int(faktura_ajour), TO_AJOUR, "Faktura_AjourCare")
                 st.download_button("Download PDF (Ajour/AkutVikar)", pdf_ajour, file_name=pdf_ajour_name)
 
-            # DANSK (unchanged rates)
+            # DANSK
             if len(df_dansk) > 0:
                 inv_dansk = build_invoice_df(df_dansk, helligdage, beregn_takst_dansk)
                 pdf_dansk, pdf_dansk_name = generer_pdf(inv_dansk, int(faktura_dansk), TO_DANSK, "Faktura_DanskOmsorgspleje")
                 st.download_button("Download PDF (Dansk Omsorgspleje)", pdf_dansk, file_name=pdf_dansk_name)
 
-            # DIT VIKARBUREAU (new rates from image)
+            # DIT VIKARBUREAU
             if len(df_dit) > 0:
                 inv_dit = build_invoice_df(df_dit, helligdage, beregn_takst_dit)
                 pdf_dit, pdf_dit_name = generer_pdf(inv_dit, int(faktura_dit), TO_DIT, "Faktura_DitVikarbureau")
@@ -502,6 +514,9 @@ if file:
 
             if len(df_ajour) == 0 and len(df_dansk) == 0 and len(df_dit) == 0:
                 st.error('Ingen rækker fundet for Ajour/Akut Vikar, Dansk Omsorgspleje eller Dit Vikarbureau i Afdeling-kolonnen.')
+
+    except Exception as e:
+        st.error(f"Fejl: {e}")
 
     except Exception as e:
         st.error(f"Fejl: {e}")
