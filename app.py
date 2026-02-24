@@ -226,12 +226,13 @@ def beregn_takst_ajour(row) -> int:
         if helligdag:
             return 230 if dag else 240
         return 230 if weekend and dag else 240 if weekend else 220 if dag else 225
-    
+
+    # ✅ NEW: Sygeplejerske for AkutVikar
     if personale == "sygeplejerske":
         if helligdag:
             return 695 if dag else 790
         return 520 if weekend and dag else 615 if weekend else 370 if dag else 465
-        
+
     return 0
 
 
@@ -316,7 +317,7 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     pdf.set_xy(140, 10)
     pdf.cell(60, 10, f"FAKTURA {fakturanr}", align="R")
 
-    # --- Header blocks: use two columns but then move BELOW BOTH blocks safely ---
+    # --- Header blocks: two columns, then move below both blocks safely ---
 
     # From (left)
     pdf.set_font("Arial", "B", 12)
@@ -350,8 +351,10 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
 
     # Table
     cols = ["Dato", "Medarbejder", "Tidsperiode", "Timer", "Personale", "Jobfunktion", "Helligdag", "Takst", "Samlet"]
-    # ✅ More space for Jobfunktion so text is visible
-    widths = [18, 30, 20, 10, 15, 35, 12, 14, 14]
+
+    # ✅ Wider "Personale" so "sygeplejerske" fits
+    # ✅ Wider "Jobfunktion" so text is visible
+    widths = [18, 28, 20, 10, 22, 32, 12, 14, 14]
 
     pdf.set_font("Arial", "B", 8)
     pdf.set_x(10)
@@ -363,19 +366,26 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     total = 0.0
     for _, r in inv.iterrows():
         pdf.set_x(10)
+
         row = [
             r["Dato"].strftime("%d.%m.%Y"),
             str(r["Medarbejder"])[:26],
             r["Tidsperiode"],
             f"{float(r['Timer']):.1f}",
-            str(r["Personale"])[:12],
-            str(r["Jobfunktion"])[:28],  # allow longer
+            str(r["Personale"]),          # ✅ no truncation
+            str(r["Jobfunktion"])[:40],   # allow more
             r["Helligdag"],
-            f"{float(r['Takst']):.2f}",     # ✅ decimals
+            f"{float(r['Takst']):.2f}",   # ✅ decimals
             f"{float(r['Samlet']):.2f}",
         ]
-        for v, w in zip(row, widths):
-            pdf.cell(w, 8, str(v), 1, align="C")
+
+        # ✅ Better alignment: text columns left, numeric centered
+        for i, (v, w) in enumerate(zip(row, widths)):
+            align = "C"
+            if i in [1, 4, 5]:  # Medarbejder, Personale, Jobfunktion
+                align = "L"
+            pdf.cell(w, 8, str(v), 1, align=align)
+
         pdf.ln()
         total += float(r["Samlet"])
 
@@ -430,7 +440,7 @@ c1, c2, c3 = st.columns(3)
 with c1:
     faktura_ajour = st.number_input("Fakturanummer (Ajour Care / AkutVikar)", min_value=0, step=1, value=0)
 with c2:
-    faktura_dansk = st.number_input("Fakturanummer (Dansk Omsorgspleje)", min_value=0, step=1, value=0)
+    faktura_dansk = st.number_input("Fakturanummer (Dansk Omsorgsplejle)", min_value=0, step=1, value=0)
 with c3:
     faktura_dit = st.number_input("Fakturanummer (Dit Vikarbureau)", min_value=0, step=1, value=0)
 
@@ -522,7 +532,3 @@ if file:
 
     except Exception as e:
         st.error(f"Fejl: {e}")
-
-    except Exception as e:
-        st.error(f"Fejl: {e}")
-
