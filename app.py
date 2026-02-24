@@ -226,7 +226,12 @@ def beregn_takst_ajour(row) -> int:
         if helligdag:
             return 230 if dag else 240
         return 230 if weekend and dag else 240 if weekend else 220 if dag else 225
-
+    
+    if personale == "sygeplejerske":
+        if helligdag:
+            return 695 if dag else 790
+        return 520 if weekend and dag else 615 if weekend else 370 if dag else 465
+        
     return 0
 
 
