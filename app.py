@@ -148,22 +148,17 @@ def rens_data_base(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df[needed].copy()
 
-    # Remove 0/blank hours
     df["Timer"] = pd.to_numeric(df["Timer"], errors="coerce")
     df = df[df["Timer"].notna() & (df["Timer"] > 0)].copy()
 
-    # Parse date
     df["Dato"] = ensure_datetime(df["Dato"])
     df = df[df["Dato"].notna()].copy()
 
-    # Tidsperiode + raw jobfunction
     df["Tidsperiode"] = df.apply(lambda r: build_tidsperiode(r["Starttid"], r["Sluttid"]), axis=1)
     df["Jobfunktion_raw"] = df["Jobfunktion"]
 
-    # Normalize personale
     df["Personale"] = df["Personalegruppe"].apply(normalize_personale)
 
-    # For proper chronological sorting inside Jobfunktion
     df["StartMin"] = df["Tidsperiode"].apply(parse_start_time_to_minutes)
 
     return df
@@ -192,7 +187,7 @@ def map_jobfunktion_ajour(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # --------------------------------------------------
-# DANSK OMSORGSPLEJE: jobfunktion display (simple extract)
+# DANSK OMSORGSPLEJE: jobfunktion display
 # --------------------------------------------------
 def extract_location_dansk(jobfunction):
     if not jobfunction:
@@ -254,7 +249,6 @@ def beregn_takst_dansk(row) -> float:
     return 280 if start_hour >= 15 else 255
 
 
-# DitVikar udbudspriser
 DITVIKAR_RATES = {
     "hjælper": {
         "weekday_day": 333.00,
@@ -306,6 +300,148 @@ def beregn_takst_dit(row) -> float:
 
 
 # --------------------------------------------------
+# EXCEL GENERATION
+# --------------------------------------------------
+def generer_excel(invoices: dict) -> BytesIO:
+    """invoices = {sheet_name: (inv_df, fakturanr, to_info)}"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    RED = "AA1E1E"
+    LIGHT_RED = "F5CCCC"
+    GREY = "F2F2F2"
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    thin = Side(style="thin", color="CCCCCC")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for sheet_name, (inv, fakturanr, to_info) in invoices.items():
+        ws = wb.create_sheet(title=sheet_name[:31])
+
+        # Header block
+        ws.merge_cells("A1:I1")
+        ws["A1"] = f"FAKTURA {fakturanr}  –  {FROM_INFO['name']}"
+        ws["A1"].font = Font(bold=True, size=14, color="FFFFFF")
+        ws["A1"].fill = PatternFill("solid", fgColor=RED)
+        ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 28
+
+        ws.merge_cells("A2:I2")
+        ws["A2"] = (
+            f"Fra: {FROM_INFO['addr']}  |  CVR: {FROM_INFO['cvr']}  |  "
+            f"Tlf: {FROM_INFO['phone']}  |  Web: {FROM_INFO['web']}"
+        )
+        ws["A2"].font = Font(size=9, color="555555")
+        ws["A2"].alignment = Alignment(horizontal="center")
+
+        ws.merge_cells("A3:I3")
+        ws["A3"] = f"Til: {to_info['title']}  |  " + "  |  ".join(to_info["lines"])
+        ws["A3"].font = Font(size=9)
+        ws["A3"].alignment = Alignment(horizontal="center")
+        ws["A3"].fill = PatternFill("solid", fgColor=LIGHT_RED)
+
+        ws.merge_cells("A4:I4")
+        ws["A4"] = f"Fakturadato: {date.today().strftime('%d.%m.%Y')}"
+        ws["A4"].font = Font(size=9, italic=True)
+        ws["A4"].alignment = Alignment(horizontal="right")
+
+        ws.append([])  # blank row 5
+
+        # Column headers row 6
+        headers = ["Dato", "Medarbejder", "Tidsperiode", "Timer", "Personale", "Jobfunktion", "Helligdag", "Takst (kr)", "Samlet (kr)"]
+        col_widths = [14, 28, 16, 8, 16, 28, 10, 12, 14]
+        ws.append(headers)
+        for col_idx, (h, w) in enumerate(zip(headers, col_widths), 1):
+            cell = ws.cell(row=6, column=col_idx)
+            cell.font = Font(bold=True, color="FFFFFF", size=10)
+            cell.fill = PatternFill("solid", fgColor=RED)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = border
+            ws.column_dimensions[get_column_letter(col_idx)].width = w
+        ws.row_dimensions[6].height = 20
+
+        # Data rows
+        data_start = 7
+        for i, (_, r) in enumerate(inv.iterrows()):
+            row_num = data_start + i
+            fill = PatternFill("solid", fgColor=GREY) if i % 2 == 0 else PatternFill("solid", fgColor="FFFFFF")
+            row_data = [
+                r["Dato"].strftime("%d.%m.%Y"),
+                str(r["Medarbejder"]),
+                r["Tidsperiode"],
+                float(r["Timer"]),
+                str(r["Personale"]),
+                str(r["Jobfunktion"]),
+                r["Helligdag"],
+                float(r["Takst"]),
+                float(r["Samlet"]),
+            ]
+            ws.append(row_data)
+            for col_idx, val in enumerate(row_data, 1):
+                cell = ws.cell(row=row_num, column=col_idx)
+                cell.fill = fill
+                cell.border = border
+                cell.font = Font(size=9)
+                if col_idx in [1, 3, 5, 6, 7]:
+                    cell.alignment = Alignment(horizontal="center")
+                if col_idx == 4:
+                    cell.number_format = "0.0"
+                    cell.alignment = Alignment(horizontal="center")
+                if col_idx in [8, 9]:
+                    cell.number_format = "#,##0.00"
+                    cell.alignment = Alignment(horizontal="right")
+
+        data_end = data_start + len(inv) - 1
+
+        # Totals
+        total_row = data_end + 2
+        ws.cell(row=total_row, column=7).value = "Subtotal:"
+        ws.cell(row=total_row, column=7).font = Font(bold=True)
+        ws.cell(row=total_row, column=7).alignment = Alignment(horizontal="right")
+        ws.cell(row=total_row, column=9).value = f"=SUM(I{data_start}:I{data_end})"
+        ws.cell(row=total_row, column=9).number_format = "#,##0.00"
+        ws.cell(row=total_row, column=9).font = Font(bold=True)
+
+        moms_row = total_row + 1
+        ws.cell(row=moms_row, column=7).value = "Moms (25%):"
+        ws.cell(row=moms_row, column=7).font = Font(bold=True)
+        ws.cell(row=moms_row, column=7).alignment = Alignment(horizontal="right")
+        ws.cell(row=moms_row, column=9).value = f"=I{total_row}*0.25"
+        ws.cell(row=moms_row, column=9).number_format = "#,##0.00"
+        ws.cell(row=moms_row, column=9).font = Font(bold=True)
+
+        grand_row = moms_row + 1
+        ws.cell(row=grand_row, column=7).value = "Total inkl. moms:"
+        ws.cell(row=grand_row, column=7).font = Font(bold=True, color="FFFFFF")
+        ws.cell(row=grand_row, column=7).fill = PatternFill("solid", fgColor=RED)
+        ws.cell(row=grand_row, column=7).alignment = Alignment(horizontal="right")
+        ws.cell(row=grand_row, column=9).value = f"=I{total_row}+I{moms_row}"
+        ws.cell(row=grand_row, column=9).number_format = "#,##0.00"
+        ws.cell(row=grand_row, column=9).font = Font(bold=True, color="FFFFFF")
+        ws.cell(row=grand_row, column=9).fill = PatternFill("solid", fgColor=RED)
+
+        # Footer
+        footer_row = grand_row + 2
+        ws.merge_cells(f"A{footer_row}:I{footer_row}")
+        ws.cell(row=footer_row, column=1).value = BANK_INFO_LINE1
+        ws.cell(row=footer_row, column=1).font = Font(size=8, italic=True)
+        ws.merge_cells(f"A{footer_row+1}:I{footer_row+1}")
+        ws.cell(row=footer_row + 1, column=1).value = BANK_INFO_LINE2
+        ws.cell(row=footer_row + 1, column=1).font = Font(size=8, italic=True)
+
+        ws.freeze_panes = "A7"
+        ws.sheet_view.showGridLines = False
+
+    out = BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return out
+
+
+# --------------------------------------------------
 # PDF GENERATION (generic)
 # --------------------------------------------------
 def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefix: str) -> tuple[BytesIO, str]:
@@ -313,16 +449,13 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=18)
 
-    # Logo
     if os.path.exists("logo.png"):
         pdf.image("logo.png", 10, 5, 30)
 
-    # Faktura nr (top right)
     pdf.set_font("Arial", "B", 20)
     pdf.set_xy(140, 10)
     pdf.cell(60, 10, f"FAKTURA {fakturanr}", align="R")
 
-    # From (left)
     pdf.set_font("Arial", "B", 12)
     pdf.set_xy(10, 40)
     pdf.cell(95, 6, f"Fra: {FROM_INFO['name']}", ln=1)
@@ -337,7 +470,6 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     pdf.cell(95, 6, f"Web: {FROM_INFO['web']}", ln=1)
     y_left_end = pdf.get_y()
 
-    # To (right)
     pdf.set_font("Arial", "B", 12)
     pdf.set_xy(105, 40)
     pdf.cell(95, 6, f"Til: {to_info['title']}", ln=1)
@@ -350,12 +482,10 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     header_end_y = max(y_left_end, y_right_end)
     pdf.set_y(header_end_y + 6)
 
-    # Fakturadato
     pdf.set_x(10)
     pdf.cell(0, 6, f"Fakturadato: {date.today().strftime('%d.%m.%Y')}", ln=1)
     pdf.ln(4)
 
-    # Table
     cols = ["Dato", "Medarbejder", "Tidsperiode", "Timer", "Personale", "Jobfunktion", "Helligdag", "Takst", "Samlet"]
     widths = [18, 28, 20, 10, 22, 32, 12, 14, 14]
 
@@ -398,7 +528,6 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     pdf.cell(0, 6, f"Moms (25%): {moms:.2f} kr", ln=1)
     pdf.cell(0, 6, f"Total inkl. moms: {total + moms:.2f} kr", ln=1)
 
-    # Footer
     pdf.ln(5)
     pdf.set_font("Arial", "", 9)
     pdf.cell(0, 6, BANK_INFO_LINE1, ln=1)
@@ -411,9 +540,9 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
 
 
 # --------------------------------------------------
-# BUILD INVOICE DF (per customer) + SORTING
+# BUILD INVOICE DF
 # --------------------------------------------------
-def build_invoice_df(df_customer: pd.DataFrame, helligdage: list[pd.Timestamp], rate_func) -> pd.DataFrame:
+def build_invoice_df(df_customer: pd.DataFrame, helligdage: list, rate_func) -> pd.DataFrame:
     inv = df_customer.copy()
 
     hellig_set = set(pd.to_datetime(helligdage))
@@ -445,6 +574,14 @@ with c2:
     faktura_dansk = st.number_input("Fakturanummer (Dansk Omsorgsplejle)", min_value=0, step=1, value=0)
 with c3:
     faktura_dit = st.number_input("Fakturanummer (Dit Vikarbureau)", min_value=0, step=1, value=0)
+
+# Export format toggle
+st.markdown("### Eksportformat")
+export_format = st.radio(
+    "Vælg filformat",
+    options=["PDF", "Excel (.xlsx)", "Begge"],
+    horizontal=True,
+)
 
 if file:
     try:
@@ -495,10 +632,12 @@ if file:
             can_generate = False
             st.warning('Du har Dit Vikarbureau-rækker, men mangler fakturanummer til "Dit Vikarbureau".')
 
-        if st.button("Generer PDF'er", disabled=not can_generate):
-            st.success("PDF'er genereres…")
+        if st.button("Generer fakturaer", disabled=not can_generate):
+            st.success("Fakturaer genereres…")
 
-            # AJOUR / AKUTVIKAR
+            inv_ajour = inv_dansk = inv_dit = None
+
+            # Build invoice DataFrames
             if len(df_ajour) > 0:
                 inv_ajour = build_invoice_df(df_ajour, helligdage, beregn_takst_ajour)
 
@@ -509,28 +648,61 @@ if file:
 
                 inv_ajour = inv_ajour.merge(kirsten_flag, on=["Dato", "Medarbejder", "Tidsperiode"], how="left")
                 inv_ajour["Kirsten"] = inv_ajour["Kirsten"].fillna(False)
-
                 inv_ajour.loc[inv_ajour["Kirsten"] == True, "Takst"] = inv_ajour["Takst"] + 10
                 inv_ajour["Samlet"] = inv_ajour["Timer"] * inv_ajour["Takst"]
                 inv_ajour = inv_ajour.drop(columns=["Kirsten"])
 
-                pdf_ajour, pdf_ajour_name = generer_pdf(inv_ajour, int(faktura_ajour), TO_AJOUR, "Faktura_AjourCare")
-                st.download_button("Download PDF (Ajour/AkutVikar)", pdf_ajour, file_name=pdf_ajour_name)
-
-            # DANSK
             if len(df_dansk) > 0:
                 inv_dansk = build_invoice_df(df_dansk, helligdage, beregn_takst_dansk)
-                pdf_dansk, pdf_dansk_name = generer_pdf(inv_dansk, int(faktura_dansk), TO_DANSK, "Faktura_DanskOmsorgspleje")
-                st.download_button("Download PDF (Dansk Omsorgspleje)", pdf_dansk, file_name=pdf_dansk_name)
 
-            # DIT VIKARBUREAU
             if len(df_dit) > 0:
                 inv_dit = build_invoice_df(df_dit, helligdage, beregn_takst_dit)
-                pdf_dit, pdf_dit_name = generer_pdf(inv_dit, int(faktura_dit), TO_DIT, "Faktura_DitVikarbureau")
-                st.download_button("Download PDF (Dit Vikarbureau)", pdf_dit, file_name=pdf_dit_name)
 
-            if len(df_ajour) == 0 and len(df_dansk) == 0 and len(df_dit) == 0:
+            if inv_ajour is None and inv_dansk is None and inv_dit is None:
                 st.error("Ingen rækker fundet for Ajour/Akut Vikar, Dansk Omsorgspleje eller Dit Vikarbureau i Afdeling-kolonnen.")
+            else:
+                # --- PDF downloads ---
+                if export_format in ("PDF", "Begge"):
+                    if inv_ajour is not None:
+                        pdf_ajour, pdf_ajour_name = generer_pdf(inv_ajour, int(faktura_ajour), TO_AJOUR, "Faktura_AjourCare")
+                        st.download_button("📄 Download PDF (Ajour/AkutVikar)", pdf_ajour, file_name=pdf_ajour_name)
+
+                    if inv_dansk is not None:
+                        pdf_dansk, pdf_dansk_name = generer_pdf(inv_dansk, int(faktura_dansk), TO_DANSK, "Faktura_DanskOmsorgspleje")
+                        st.download_button("📄 Download PDF (Dansk Omsorgspleje)", pdf_dansk, file_name=pdf_dansk_name)
+
+                    if inv_dit is not None:
+                        pdf_dit, pdf_dit_name = generer_pdf(inv_dit, int(faktura_dit), TO_DIT, "Faktura_DitVikarbureau")
+                        st.download_button("📄 Download PDF (Dit Vikarbureau)", pdf_dit, file_name=pdf_dit_name)
+
+                # --- Excel downloads (separate per customer) ---
+                if export_format in ("Excel (.xlsx)", "Begge"):
+                    if inv_ajour is not None:
+                        excel_ajour = generer_excel({"Ajour Care": (inv_ajour, int(faktura_ajour), TO_AJOUR)})
+                        st.download_button(
+                            "📊 Download Excel (Ajour/AkutVikar)",
+                            excel_ajour,
+                            file_name=f"Faktura_AjourCare_{int(faktura_ajour)}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+
+                    if inv_dansk is not None:
+                        excel_dansk = generer_excel({"Dansk Omsorgspleje": (inv_dansk, int(faktura_dansk), TO_DANSK)})
+                        st.download_button(
+                            "📊 Download Excel (Dansk Omsorgspleje)",
+                            excel_dansk,
+                            file_name=f"Faktura_DanskOmsorgspleje_{int(faktura_dansk)}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+
+                    if inv_dit is not None:
+                        excel_dit = generer_excel({"Dit Vikarbureau": (inv_dit, int(faktura_dit), TO_DIT)})
+                        st.download_button(
+                            "📊 Download Excel (Dit Vikarbureau)",
+                            excel_dit,
+                            file_name=f"Faktura_DitVikarbureau_{int(faktura_dit)}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
 
     except Exception as e:
         st.error(f"Fejl: {e}")
