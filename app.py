@@ -89,6 +89,8 @@ def normalize_personale(val: str) -> str:
         return "assistent"
     if "sygepl" in s:
         return "sygeplejerske"
+    if "ergoter" in s:
+        return "ergoterapeut"
     return s
 
 
@@ -168,13 +170,15 @@ def rens_data_base(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # --------------------------------------------------
-# AJOURCARE: jobfunktion mapping (your logic)
+# AJOURCARE: jobfunktion mapping
 # --------------------------------------------------
 def map_jobfunktion_ajour(df: pd.DataFrame) -> pd.DataFrame:
     byer = ["allerød", "egedal", "frederiksund", "solrød", "herlev", "ringsted", "køge"]
 
     def find_by(txt):
         t = str(txt).lower()
+        if "ergoter" in t:
+            return "ergoterapeut"
         for b in byer:
             if b in t:
                 return b
@@ -204,7 +208,7 @@ def extract_location_dit(jobfunction):
 # --------------------------------------------------
 # RATE LOGIC
 # --------------------------------------------------
-def beregn_takst_ajour(row) -> int:
+def beregn_takst_ajour(row) -> float:
     helligdag = row["Helligdag"] == "Ja"
     personale = row["Personale"]
 
@@ -227,16 +231,18 @@ def beregn_takst_ajour(row) -> int:
             return 230 if dag else 240
         return 230 if weekend and dag else 240 if weekend else 220 if dag else 225
 
-    # ✅ NEW: Sygeplejerske for AkutVikar
     if personale == "sygeplejerske":
         if helligdag:
             return 695 if dag else 790
         return 520 if weekend and dag else 615 if weekend else 370 if dag else 465
 
+    if personale == "ergoterapeut":
+        return 370
+
     return 0
 
 
-def beregn_takst_dansk(row) -> int:
+def beregn_takst_dansk(row) -> float:
     if row["Helligdag"] == "Ja":
         return 350
 
@@ -248,7 +254,7 @@ def beregn_takst_dansk(row) -> int:
     return 280 if start_hour >= 15 else 255
 
 
-# DitVikar udbudspriser (fra dit billede)
+# DitVikar udbudspriser
 DITVIKAR_RATES = {
     "hjælper": {
         "weekday_day": 333.00,
@@ -278,7 +284,6 @@ DITVIKAR_RATES = {
 
 
 def is_day_window(start_min: int) -> bool:
-    # Day window: 06:00–15:00
     return 6 * 60 <= start_min < 15 * 60
 
 
@@ -317,17 +322,19 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     pdf.set_xy(140, 10)
     pdf.cell(60, 10, f"FAKTURA {fakturanr}", align="R")
 
-    # --- Header blocks: two columns, then move below both blocks safely ---
-
     # From (left)
     pdf.set_font("Arial", "B", 12)
     pdf.set_xy(10, 40)
     pdf.cell(95, 6, f"Fra: {FROM_INFO['name']}", ln=1)
     pdf.set_font("Arial", "", 10)
-    pdf.set_x(10); pdf.cell(95, 6, FROM_INFO["addr"], ln=1)
-    pdf.set_x(10); pdf.cell(95, 6, f"CVR.nr. {FROM_INFO['cvr']}", ln=1)
-    pdf.set_x(10); pdf.cell(95, 6, f"Tlf: {FROM_INFO['phone']}", ln=1)
-    pdf.set_x(10); pdf.cell(95, 6, f"Web: {FROM_INFO['web']}", ln=1)
+    pdf.set_x(10)
+    pdf.cell(95, 6, FROM_INFO["addr"], ln=1)
+    pdf.set_x(10)
+    pdf.cell(95, 6, f"CVR.nr. {FROM_INFO['cvr']}", ln=1)
+    pdf.set_x(10)
+    pdf.cell(95, 6, f"Tlf: {FROM_INFO['phone']}", ln=1)
+    pdf.set_x(10)
+    pdf.cell(95, 6, f"Web: {FROM_INFO['web']}", ln=1)
     y_left_end = pdf.get_y()
 
     # To (right)
@@ -340,20 +347,16 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
         pdf.cell(95, 6, line, ln=1)
     y_right_end = pdf.get_y()
 
-    # ✅ FIX: move cursor below whichever column is taller
     header_end_y = max(y_left_end, y_right_end)
     pdf.set_y(header_end_y + 6)
 
-    # Fakturadato (now will never overlap)
+    # Fakturadato
     pdf.set_x(10)
     pdf.cell(0, 6, f"Fakturadato: {date.today().strftime('%d.%m.%Y')}", ln=1)
     pdf.ln(4)
 
     # Table
     cols = ["Dato", "Medarbejder", "Tidsperiode", "Timer", "Personale", "Jobfunktion", "Helligdag", "Takst", "Samlet"]
-
-    # ✅ Wider "Personale" so "sygeplejerske" fits
-    # ✅ Wider "Jobfunktion" so text is visible
     widths = [18, 28, 20, 10, 22, 32, 12, 14, 14]
 
     pdf.set_font("Arial", "B", 8)
@@ -372,17 +375,16 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
             str(r["Medarbejder"])[:26],
             r["Tidsperiode"],
             f"{float(r['Timer']):.1f}",
-            str(r["Personale"]),          # ✅ no truncation
-            str(r["Jobfunktion"])[:40],   # allow more
+            str(r["Personale"]),
+            str(r["Jobfunktion"])[:40],
             r["Helligdag"],
-            f"{float(r['Takst']):.2f}",   # ✅ decimals
+            f"{float(r['Takst']):.2f}",
             f"{float(r['Samlet']):.2f}",
         ]
 
-        # ✅ Better alignment: text columns left, numeric centered
         for i, (v, w) in enumerate(zip(row, widths)):
             align = "C"
-            if i in [1, 4, 5]:  # Medarbejder, Personale, Jobfunktion
+            if i in [1, 4, 5]:
                 align = "L"
             pdf.cell(w, 8, str(v), 1, align=align)
 
@@ -500,7 +502,7 @@ if file:
             if len(df_ajour) > 0:
                 inv_ajour = build_invoice_df(df_ajour, helligdage, beregn_takst_ajour)
 
-                # Kirsten +10 (based on Jobfunktion_raw in df_ajour)
+                # Kirsten +10
                 kirsten_flag = df_ajour[["Dato", "Medarbejder", "Tidsperiode", "Jobfunktion_raw"]].copy()
                 kirsten_flag["Kirsten"] = kirsten_flag["Jobfunktion_raw"].astype(str).str.contains("kirsten", case=False, na=False)
                 kirsten_flag = kirsten_flag.drop(columns=["Jobfunktion_raw"])
@@ -528,7 +530,7 @@ if file:
                 st.download_button("Download PDF (Dit Vikarbureau)", pdf_dit, file_name=pdf_dit_name)
 
             if len(df_ajour) == 0 and len(df_dansk) == 0 and len(df_dit) == 0:
-                st.error('Ingen rækker fundet for Ajour/Akut Vikar, Dansk Omsorgspleje eller Dit Vikarbureau i Afdeling-kolonnen.')
+                st.error("Ingen rækker fundet for Ajour/Akut Vikar, Dansk Omsorgspleje eller Dit Vikarbureau i Afdeling-kolonnen.")
 
     except Exception as e:
         st.error(f"Fejl: {e}")
