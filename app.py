@@ -234,7 +234,10 @@ def beregn_takst_ajour(row) -> float:
         return 520 if weekend and dag else 615 if weekend else 370 if dag else 465
 
     if personale == "ergoterapeut":
-        return 370
+        dag = start_hour < 15
+        if helligdag:
+            return 700 if dag else 790
+        return 400 if dag else 480
 
     return 0
 
