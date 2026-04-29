@@ -215,26 +215,25 @@ def beregn_takst_ajour(row) -> float:
 
     if personale == "ufaglært":
         if helligdag:
-            return 215 if dag else 220
+            return 250 if dag else 270
         return 215 if weekend and dag else 220 if weekend else 175 if dag else 210
 
     if personale == "hjælper":
         if helligdag:
-            return 215 if dag else 220
+            return 260 if dag else 280
         return 215 if weekend and dag else 220 if weekend else 200 if dag else 210
 
     if personale == "assistent":
         if helligdag:
-            return 230 if dag else 240
+            return 280 if dag else 300
         return 230 if weekend and dag else 240 if weekend else 220 if dag else 225
 
     if personale == "sygeplejerske":
         if helligdag:
-            return 695 if dag else 790
+            return 695 if dag else 795
         return 520 if weekend and dag else 615 if weekend else 370 if dag else 465
 
     if personale == "ergoterapeut":
-        dag = start_hour < 15
         if helligdag:
             return 700 if dag else 790
         return 400 if dag else 480
@@ -308,7 +307,6 @@ def beregn_takst_dit(row) -> float:
 # EXCEL GENERATION
 # --------------------------------------------------
 def generer_excel(invoices: dict) -> BytesIO:
-    """invoices = {sheet_name: (inv_df, fakturanr, to_info)}"""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
@@ -326,7 +324,6 @@ def generer_excel(invoices: dict) -> BytesIO:
     for sheet_name, (inv, fakturanr, to_info) in invoices.items():
         ws = wb.create_sheet(title=sheet_name[:31])
 
-        # Header block
         ws.merge_cells("A1:I1")
         ws["A1"] = f"FAKTURA {fakturanr}  –  {FROM_INFO['name']}"
         ws["A1"].font = Font(bold=True, size=14, color="FFFFFF")
@@ -353,9 +350,8 @@ def generer_excel(invoices: dict) -> BytesIO:
         ws["A4"].font = Font(size=9, italic=True)
         ws["A4"].alignment = Alignment(horizontal="right")
 
-        ws.append([])  # blank row 5
+        ws.append([])
 
-        # Column headers row 6
         headers = ["Dato", "Medarbejder", "Tidsperiode", "Timer", "Personale", "Jobfunktion", "Helligdag", "Takst (kr)", "Samlet (kr)"]
         col_widths = [14, 28, 16, 8, 16, 28, 10, 12, 14]
         ws.append(headers)
@@ -368,7 +364,6 @@ def generer_excel(invoices: dict) -> BytesIO:
             ws.column_dimensions[get_column_letter(col_idx)].width = w
         ws.row_dimensions[6].height = 20
 
-        # Data rows
         data_start = 7
         for i, (_, r) in enumerate(inv.iterrows()):
             row_num = data_start + i
@@ -401,7 +396,6 @@ def generer_excel(invoices: dict) -> BytesIO:
 
         data_end = data_start + len(inv) - 1
 
-        # Totals
         total_row = data_end + 2
         ws.cell(row=total_row, column=7).value = "Subtotal:"
         ws.cell(row=total_row, column=7).font = Font(bold=True)
@@ -428,7 +422,6 @@ def generer_excel(invoices: dict) -> BytesIO:
         ws.cell(row=grand_row, column=9).font = Font(bold=True, color="FFFFFF")
         ws.cell(row=grand_row, column=9).fill = PatternFill("solid", fgColor=RED)
 
-        # Footer
         footer_row = grand_row + 2
         ws.merge_cells(f"A{footer_row}:I{footer_row}")
         ws.cell(row=footer_row, column=1).value = BANK_INFO_LINE1
@@ -580,7 +573,6 @@ with c2:
 with c3:
     faktura_dit = st.number_input("Fakturanummer (Dit Vikarbureau)", min_value=0, step=1, value=0)
 
-# Export format toggle
 st.markdown("### Eksportformat")
 export_format = st.radio(
     "Vælg filformat",
@@ -642,11 +634,9 @@ if file:
 
             inv_ajour = inv_dansk = inv_dit = None
 
-            # Build invoice DataFrames
             if len(df_ajour) > 0:
                 inv_ajour = build_invoice_df(df_ajour, helligdage, beregn_takst_ajour)
 
-                # Kirsten +10
                 kirsten_flag = df_ajour[["Dato", "Medarbejder", "Tidsperiode", "Jobfunktion_raw"]].copy()
                 kirsten_flag["Kirsten"] = kirsten_flag["Jobfunktion_raw"].astype(str).str.contains("kirsten", case=False, na=False)
                 kirsten_flag = kirsten_flag.drop(columns=["Jobfunktion_raw"])
@@ -666,7 +656,6 @@ if file:
             if inv_ajour is None and inv_dansk is None and inv_dit is None:
                 st.error("Ingen rækker fundet for Ajour/Akut Vikar, Dansk Omsorgspleje eller Dit Vikarbureau i Afdeling-kolonnen.")
             else:
-                # --- PDF downloads ---
                 if export_format in ("PDF", "Begge"):
                     if inv_ajour is not None:
                         pdf_ajour, pdf_ajour_name = generer_pdf(inv_ajour, int(faktura_ajour), TO_AJOUR, "Faktura_AjourCare")
@@ -680,7 +669,6 @@ if file:
                         pdf_dit, pdf_dit_name = generer_pdf(inv_dit, int(faktura_dit), TO_DIT, "Faktura_DitVikarbureau")
                         st.download_button("📄 Download PDF (Dit Vikarbureau)", pdf_dit, file_name=pdf_dit_name)
 
-                # --- Excel downloads (separate per customer) ---
                 if export_format in ("Excel (.xlsx)", "Begge"):
                     if inv_ajour is not None:
                         excel_ajour = generer_excel({"Ajour Care": (inv_ajour, int(faktura_ajour), TO_AJOUR)})
