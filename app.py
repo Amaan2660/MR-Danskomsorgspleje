@@ -194,6 +194,8 @@ def map_jobfunktion_ajour(df: pd.DataFrame) -> pd.DataFrame:
 def extract_location_dansk(jobfunction):
     if not jobfunction:
         return ""
+    if "helsinge" in str(jobfunction).lower():
+        return "Helsinge"
     parts = str(jobfunction).split("-")
     return parts[1].strip() if len(parts) > 1 else str(jobfunction).strip()
 
