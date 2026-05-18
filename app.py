@@ -168,7 +168,7 @@ def rens_data_base(df: pd.DataFrame) -> pd.DataFrame:
 # AJOURCARE: jobfunktion mapping
 # --------------------------------------------------
 def map_jobfunktion_ajour(df: pd.DataFrame) -> pd.DataFrame:
-    byer = ["allerød", "egedal", "frederiksund", "frederikssund", "solrød", "herlev", "ringsted", "køge"]
+    byer = ["allerød", "egedal", "frederiksund", "frederikssund", "solrød", "herlev", "ringsted", "køge", "greve"]
 
     def find_by(txt):
         t = str(txt).lower()
