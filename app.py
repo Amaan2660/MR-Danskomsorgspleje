@@ -168,19 +168,30 @@ def rens_data_base(df: pd.DataFrame) -> pd.DataFrame:
 # AJOURCARE: jobfunktion mapping
 # --------------------------------------------------
 def map_jobfunktion_ajour(df: pd.DataFrame) -> pd.DataFrame:
-    byer = ["allerød", "egedal", "frederiksund", "frederikssund", "solrød", "herlev", "ringsted", "køge", "greve"]
+    byer = [
+        "allerød",
+        "egedal",
+        "frederiksund",
+        "frederikssund",
+        "solrød",
+        "herlev",
+        "ringsted",
+        "køge",
+        "greve",
+    ]
 
     def find_by(txt):
         t = str(txt).lower()
-        if "ergoter" in t:
-            return "ergoterapeut"
+
         for b in byer:
             if b in t:
                 if b in ("frederiksund", "frederikssund"):
-                    return "frederikssund"
+                    return "frederiksund"
                 return b
+
         if "kirsten" in t:
             return "køge"
+
         return "andet"
 
     out = df.copy()
