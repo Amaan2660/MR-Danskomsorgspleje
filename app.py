@@ -318,7 +318,7 @@ def beregn_takst_dit(row) -> float:
 # --------------------------------------------------
 # EXCEL GENERATION
 # --------------------------------------------------
-def generer_excel(invoices: dict) -> BytesIO:
+def generer_excel(invoices: dict, uden_moms: bool = False) -> BytesIO:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
@@ -336,8 +336,9 @@ def generer_excel(invoices: dict) -> BytesIO:
     for sheet_name, (inv, fakturanr, to_info) in invoices.items():
         ws = wb.create_sheet(title=sheet_name[:31])
 
+        moms_label = "  (UDEN MOMS)" if uden_moms else ""
         ws.merge_cells("A1:I1")
-        ws["A1"] = f"FAKTURA {fakturanr}  –  {FROM_INFO['name']}"
+        ws["A1"] = f"FAKTURA {fakturanr}{moms_label}  –  {FROM_INFO['name']}"
         ws["A1"].font = Font(bold=True, size=14, color="FFFFFF")
         ws["A1"].fill = PatternFill("solid", fgColor=RED)
         ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
@@ -416,23 +417,35 @@ def generer_excel(invoices: dict) -> BytesIO:
         ws.cell(row=total_row, column=9).number_format = "#,##0.00"
         ws.cell(row=total_row, column=9).font = Font(bold=True)
 
-        moms_row = total_row + 1
-        ws.cell(row=moms_row, column=7).value = "Moms (25%):"
-        ws.cell(row=moms_row, column=7).font = Font(bold=True)
-        ws.cell(row=moms_row, column=7).alignment = Alignment(horizontal="right")
-        ws.cell(row=moms_row, column=9).value = f"=I{total_row}*0.25"
-        ws.cell(row=moms_row, column=9).number_format = "#,##0.00"
-        ws.cell(row=moms_row, column=9).font = Font(bold=True)
+        if uden_moms:
+            # No VAT rows — just show total = subtotal
+            grand_row = total_row + 1
+            ws.cell(row=grand_row, column=7).value = "Total (uden moms):"
+            ws.cell(row=grand_row, column=7).font = Font(bold=True, color="FFFFFF")
+            ws.cell(row=grand_row, column=7).fill = PatternFill("solid", fgColor=RED)
+            ws.cell(row=grand_row, column=7).alignment = Alignment(horizontal="right")
+            ws.cell(row=grand_row, column=9).value = f"=I{total_row}"
+            ws.cell(row=grand_row, column=9).number_format = "#,##0.00"
+            ws.cell(row=grand_row, column=9).font = Font(bold=True, color="FFFFFF")
+            ws.cell(row=grand_row, column=9).fill = PatternFill("solid", fgColor=RED)
+        else:
+            moms_row = total_row + 1
+            ws.cell(row=moms_row, column=7).value = "Moms (25%):"
+            ws.cell(row=moms_row, column=7).font = Font(bold=True)
+            ws.cell(row=moms_row, column=7).alignment = Alignment(horizontal="right")
+            ws.cell(row=moms_row, column=9).value = f"=I{total_row}*0.25"
+            ws.cell(row=moms_row, column=9).number_format = "#,##0.00"
+            ws.cell(row=moms_row, column=9).font = Font(bold=True)
 
-        grand_row = moms_row + 1
-        ws.cell(row=grand_row, column=7).value = "Total inkl. moms:"
-        ws.cell(row=grand_row, column=7).font = Font(bold=True, color="FFFFFF")
-        ws.cell(row=grand_row, column=7).fill = PatternFill("solid", fgColor=RED)
-        ws.cell(row=grand_row, column=7).alignment = Alignment(horizontal="right")
-        ws.cell(row=grand_row, column=9).value = f"=I{total_row}+I{moms_row}"
-        ws.cell(row=grand_row, column=9).number_format = "#,##0.00"
-        ws.cell(row=grand_row, column=9).font = Font(bold=True, color="FFFFFF")
-        ws.cell(row=grand_row, column=9).fill = PatternFill("solid", fgColor=RED)
+            grand_row = moms_row + 1
+            ws.cell(row=grand_row, column=7).value = "Total inkl. moms:"
+            ws.cell(row=grand_row, column=7).font = Font(bold=True, color="FFFFFF")
+            ws.cell(row=grand_row, column=7).fill = PatternFill("solid", fgColor=RED)
+            ws.cell(row=grand_row, column=7).alignment = Alignment(horizontal="right")
+            ws.cell(row=grand_row, column=9).value = f"=I{total_row}+I{moms_row}"
+            ws.cell(row=grand_row, column=9).number_format = "#,##0.00"
+            ws.cell(row=grand_row, column=9).font = Font(bold=True, color="FFFFFF")
+            ws.cell(row=grand_row, column=9).fill = PatternFill("solid", fgColor=RED)
 
         footer_row = grand_row + 2
         ws.merge_cells(f"A{footer_row}:I{footer_row}")
@@ -454,7 +467,7 @@ def generer_excel(invoices: dict) -> BytesIO:
 # --------------------------------------------------
 # PDF GENERATION (generic)
 # --------------------------------------------------
-def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefix: str) -> tuple[BytesIO, str]:
+def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefix: str, uden_moms: bool = False) -> tuple[BytesIO, str]:
     pdf = FPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=18)
@@ -462,9 +475,10 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     if os.path.exists("logo.png"):
         pdf.image("logo.png", 10, 5, 30)
 
+    moms_label = " (UDEN MOMS)" if uden_moms else ""
     pdf.set_font("Arial", "B", 20)
     pdf.set_xy(140, 10)
-    pdf.cell(60, 10, f"FAKTURA {fakturanr}", align="R")
+    pdf.cell(60, 10, f"FAKTURA {fakturanr}{moms_label}", align="R")
 
     pdf.set_font("Arial", "B", 12)
     pdf.set_xy(10, 40)
@@ -531,12 +545,16 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
         pdf.ln()
         total += float(r["Samlet"])
 
-    moms = total * 0.25
     pdf.ln(4)
     pdf.set_font("Arial", "B", 10)
     pdf.cell(0, 6, f"Subtotal: {total:.2f} kr", ln=1)
-    pdf.cell(0, 6, f"Moms (25%): {moms:.2f} kr", ln=1)
-    pdf.cell(0, 6, f"Total inkl. moms: {total + moms:.2f} kr", ln=1)
+
+    if uden_moms:
+        pdf.cell(0, 6, f"Total (uden moms): {total:.2f} kr", ln=1)
+    else:
+        moms = total * 0.25
+        pdf.cell(0, 6, f"Moms (25%): {moms:.2f} kr", ln=1)
+        pdf.cell(0, 6, f"Total inkl. moms: {total + moms:.2f} kr", ln=1)
 
     pdf.ln(5)
     pdf.set_font("Arial", "", 9)
@@ -584,6 +602,8 @@ with c2:
     faktura_dansk = st.number_input("Fakturanummer (Dansk Omsorgsplejle)", min_value=0, step=1, value=0)
 with c3:
     faktura_dit = st.number_input("Fakturanummer (Dit Vikarbureau)", min_value=0, step=1, value=0)
+
+dansk_uden_moms = st.checkbox("Faktura uden moms (kun Dansk Omsorgspleje)", value=False)
 
 st.markdown("### Eksportformat")
 export_format = st.radio(
@@ -674,8 +694,12 @@ if file:
                         st.download_button("📄 Download PDF (Ajour/AkutVikar)", pdf_ajour, file_name=pdf_ajour_name)
 
                     if inv_dansk is not None:
-                        pdf_dansk, pdf_dansk_name = generer_pdf(inv_dansk, int(faktura_dansk), TO_DANSK, "Faktura_DanskOmsorgspleje")
-                        st.download_button("📄 Download PDF (Dansk Omsorgspleje)", pdf_dansk, file_name=pdf_dansk_name)
+                        pdf_dansk, pdf_dansk_name = generer_pdf(
+                            inv_dansk, int(faktura_dansk), TO_DANSK, "Faktura_DanskOmsorgspleje",
+                            uden_moms=dansk_uden_moms,
+                        )
+                        label_suffix = " – UDEN MOMS" if dansk_uden_moms else ""
+                        st.download_button(f"📄 Download PDF (Dansk Omsorgspleje{label_suffix})", pdf_dansk, file_name=pdf_dansk_name)
 
                     if inv_dit is not None:
                         pdf_dit, pdf_dit_name = generer_pdf(inv_dit, int(faktura_dit), TO_DIT, "Faktura_DitVikarbureau")
@@ -692,9 +716,13 @@ if file:
                         )
 
                     if inv_dansk is not None:
-                        excel_dansk = generer_excel({"Dansk Omsorgspleje": (inv_dansk, int(faktura_dansk), TO_DANSK)})
+                        excel_dansk = generer_excel(
+                            {"Dansk Omsorgspleje": (inv_dansk, int(faktura_dansk), TO_DANSK)},
+                            uden_moms=dansk_uden_moms,
+                        )
+                        label_suffix = " – UDEN MOMS" if dansk_uden_moms else ""
                         st.download_button(
-                            "📊 Download Excel (Dansk Omsorgspleje)",
+                            f"📊 Download Excel (Dansk Omsorgspleje{label_suffix})",
                             excel_dansk,
                             file_name=f"Faktura_DanskOmsorgspleje_{int(faktura_dansk)}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
