@@ -6,7 +6,7 @@ from fpdf import FPDF
 import os
 
 st.set_page_config(
-    page_title="MR Fakturagenerator (Ajour + Dansk Omsorgspleje + Dit Vikarbureau)",
+    page_title="Byggekilden Fakturagenerator (Ajour + Dansk Omsorgspleje + Dit Vikarbureau)",
     layout="centered",
 )
 
@@ -28,21 +28,18 @@ body { background-color:#aa1e1e; color:white; }
     unsafe_allow_html=True,
 )
 
-if os.path.exists("logo.png"):
-    st.image("logo.png", width=80)
-
 # --------------------------------------------------
 # CONSTANTS (FROM / TO)
 # --------------------------------------------------
 FROM_INFO = {
-    "name": "MR Rekruttering",
-    "addr": "Valbygårdsvej 1, 4. th, 2500 Valby",
-    "cvr": "45090965",
-    "phone": "71747290",
-    "web": "www.akutvikar.com",
+    "name": "Byggekilden ApS",
+    "addr": "Vermundsgade 27, st. tv",
+    "city": "2100 København Ø",
+    "cvr": "43856774",
+    "email": "Regnskab@byggekilden.dk",
 }
 
-BANK_INFO_LINE1 = "Bank: Finseta | IBAN: GB79TCCL04140404627601 | BIC: TCCLGB3LXXX"
+BANK_INFO_LINE1 = "Reg.nr.: 8900 | Kontonr.: 0028954619"
 BANK_INFO_LINE2 = "Betalingsbetingelser: Bankoverførsel. Fakturanr. bedes angivet ved betaling."
 
 TO_AJOUR = {
@@ -346,8 +343,8 @@ def generer_excel(invoices: dict, uden_moms: bool = False) -> BytesIO:
 
         ws.merge_cells("A2:I2")
         ws["A2"] = (
-            f"Fra: {FROM_INFO['addr']}  |  CVR: {FROM_INFO['cvr']}  |  "
-            f"Tlf: {FROM_INFO['phone']}  |  Web: {FROM_INFO['web']}"
+            f"Fra: {FROM_INFO['addr']}, {FROM_INFO['city']}  |  CVR: {FROM_INFO['cvr']}  |  "
+            f"Email: {FROM_INFO['email']}"
         )
         ws["A2"].font = Font(size=9, color="555555")
         ws["A2"].alignment = Alignment(horizontal="center")
@@ -418,7 +415,6 @@ def generer_excel(invoices: dict, uden_moms: bool = False) -> BytesIO:
         ws.cell(row=total_row, column=9).font = Font(bold=True)
 
         if uden_moms:
-            # No VAT rows — just show total = subtotal
             grand_row = total_row + 1
             ws.cell(row=grand_row, column=7).value = "Total (uden moms):"
             ws.cell(row=grand_row, column=7).font = Font(bold=True, color="FFFFFF")
@@ -472,30 +468,27 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=18)
 
-    if os.path.exists("logo.png"):
-        pdf.image("logo.png", 10, 5, 30)
-
     moms_label = " (UDEN MOMS)" if uden_moms else ""
     pdf.set_font("Arial", "B", 20)
     pdf.set_xy(140, 10)
     pdf.cell(60, 10, f"FAKTURA {fakturanr}{moms_label}", align="R")
 
     pdf.set_font("Arial", "B", 12)
-    pdf.set_xy(10, 40)
+    pdf.set_xy(10, 25)
     pdf.cell(95, 6, f"Fra: {FROM_INFO['name']}", ln=1)
     pdf.set_font("Arial", "", 10)
     pdf.set_x(10)
     pdf.cell(95, 6, FROM_INFO["addr"], ln=1)
     pdf.set_x(10)
+    pdf.cell(95, 6, FROM_INFO["city"], ln=1)
+    pdf.set_x(10)
     pdf.cell(95, 6, f"CVR.nr. {FROM_INFO['cvr']}", ln=1)
     pdf.set_x(10)
-    pdf.cell(95, 6, f"Tlf: {FROM_INFO['phone']}", ln=1)
-    pdf.set_x(10)
-    pdf.cell(95, 6, f"Web: {FROM_INFO['web']}", ln=1)
+    pdf.cell(95, 6, f"Email: {FROM_INFO['email']}", ln=1)
     y_left_end = pdf.get_y()
 
     pdf.set_font("Arial", "B", 12)
-    pdf.set_xy(105, 40)
+    pdf.set_xy(105, 25)
     pdf.cell(95, 6, f"Til: {to_info['title']}", ln=1)
     pdf.set_font("Arial", "", 10)
     for line in to_info["lines"]:
@@ -591,7 +584,7 @@ def build_invoice_df(df_customer: pd.DataFrame, helligdage: list, rate_func) -> 
 # --------------------------------------------------
 # UI
 # --------------------------------------------------
-st.title("MR Rekruttering – Fakturagenerator (Ajour Care + Dansk Omsorgspleje + Dit Vikarbureau)")
+st.title("Byggekilden ApS – Fakturagenerator (Ajour Care + Dansk Omsorgspleje + Dit Vikarbureau)")
 
 file = st.file_uploader("Upload vagtplan-fil (Excel)", type=["xlsx", "xls"])
 
@@ -599,7 +592,7 @@ c1, c2, c3 = st.columns(3)
 with c1:
     faktura_ajour = st.number_input("Fakturanummer (Ajour Care / AkutVikar)", min_value=0, step=1, value=0)
 with c2:
-    faktura_dansk = st.number_input("Fakturanummer (Dansk Omsorgsplejle)", min_value=0, step=1, value=0)
+    faktura_dansk = st.number_input("Fakturanummer (Dansk Omsorgspleje)", min_value=0, step=1, value=0)
 with c3:
     faktura_dit = st.number_input("Fakturanummer (Dit Vikarbureau)", min_value=0, step=1, value=0)
 
