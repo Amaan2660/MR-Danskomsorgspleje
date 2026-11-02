@@ -39,8 +39,17 @@ FROM_INFO = {
     "email": "Regnskab@byggekilden.dk",
 }
 
-BANK_INFO_LINE1 = "Reg.nr.: 8900 | Kontonr.: 0028954619"
-BANK_INFO_LINE2 = "Betalingsbetingelser: Bankoverførsel. Fakturanr. bedes angivet ved betaling."
+BANK = {
+    "bank": "Revolut Bank UAB",
+    "iban": "LT61 3250 0279 2208 3545",
+    "swift": "REVOLT21",
+}
+
+BANK_INFO_LINES = [
+    f"Bank: {BANK['bank']}, Konstitucijos ave. 21B, 08130 Vilnius, Lithuania",
+    f"Modtager: Byggekilden ApS | IBAN: {BANK['iban']} | SWIFT/BIC: {BANK['swift']}",
+    "Betalingsbetingelser: Bankoverførsel i DKK. Fakturanr. bedes angivet ved betaling.",
+]
 
 TO_AJOUR = {
     "title": "Ajour Care ApS",
@@ -344,7 +353,7 @@ def generer_excel(invoices: dict, uden_moms: bool = False) -> BytesIO:
         ws.merge_cells("A2:I2")
         ws["A2"] = (
             f"Fra: {FROM_INFO['addr']}, {FROM_INFO['city']}  |  CVR: {FROM_INFO['cvr']}  |  "
-            f"Email: {FROM_INFO['email']}"
+            f"Email: {FROM_INFO['email']}  |  IBAN: {BANK['iban']}  |  SWIFT/BIC: {BANK['swift']}"
         )
         ws["A2"].font = Font(size=9, color="555555")
         ws["A2"].alignment = Alignment(horizontal="center")
@@ -444,12 +453,11 @@ def generer_excel(invoices: dict, uden_moms: bool = False) -> BytesIO:
             ws.cell(row=grand_row, column=9).fill = PatternFill("solid", fgColor=RED)
 
         footer_row = grand_row + 2
-        ws.merge_cells(f"A{footer_row}:I{footer_row}")
-        ws.cell(row=footer_row, column=1).value = BANK_INFO_LINE1
-        ws.cell(row=footer_row, column=1).font = Font(size=8, italic=True)
-        ws.merge_cells(f"A{footer_row+1}:I{footer_row+1}")
-        ws.cell(row=footer_row + 1, column=1).value = BANK_INFO_LINE2
-        ws.cell(row=footer_row + 1, column=1).font = Font(size=8, italic=True)
+        for j, line in enumerate(BANK_INFO_LINES):
+            r_ = footer_row + j
+            ws.merge_cells(f"A{r_}:I{r_}")
+            ws.cell(row=r_, column=1).value = line
+            ws.cell(row=r_, column=1).font = Font(size=8, italic=True)
 
         ws.freeze_panes = "A7"
         ws.sheet_view.showGridLines = False
@@ -463,7 +471,7 @@ def generer_excel(invoices: dict, uden_moms: bool = False) -> BytesIO:
 # --------------------------------------------------
 # PDF GENERATION (generic)
 # --------------------------------------------------
-def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefix: str, uden_moms: bool = False) -> tuple[BytesIO, str]:
+def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefix: str, uden_moms: bool = False, fakturadato=None) -> tuple[BytesIO, str]:
     pdf = FPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=18)
@@ -485,6 +493,12 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     pdf.cell(95, 6, f"CVR.nr. {FROM_INFO['cvr']}", ln=1)
     pdf.set_x(10)
     pdf.cell(95, 6, f"Email: {FROM_INFO['email']}", ln=1)
+    pdf.set_x(10)
+    pdf.cell(95, 6, f"Bank: {BANK['bank']}", ln=1)
+    pdf.set_x(10)
+    pdf.cell(95, 6, f"IBAN: {BANK['iban']}", ln=1)
+    pdf.set_x(10)
+    pdf.cell(95, 6, f"SWIFT/BIC: {BANK['swift']}", ln=1)
     y_left_end = pdf.get_y()
 
     pdf.set_font("Arial", "B", 12)
@@ -500,7 +514,7 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
     pdf.set_y(header_end_y + 6)
 
     pdf.set_x(10)
-    pdf.cell(0, 6, f"Fakturadato: {date.today().strftime('%d.%m.%Y')}", ln=1)
+    pdf.cell(0, 6, f"Fakturadato: {(fakturadato or date.today()).strftime('%d.%m.%Y')}", ln=1)
     pdf.ln(4)
 
     cols = ["Dato", "Medarbejder", "Tidsperiode", "Timer", "Personale", "Jobfunktion", "Helligdag", "Takst", "Samlet"]
@@ -551,8 +565,8 @@ def generer_pdf(inv: pd.DataFrame, fakturanr: int, to_info: dict, filename_prefi
 
     pdf.ln(5)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(0, 6, BANK_INFO_LINE1, ln=1)
-    pdf.cell(0, 6, BANK_INFO_LINE2, ln=1)
+    for line in BANK_INFO_LINES:
+        pdf.cell(0, 5, line, ln=1)
 
     pdf_bytes = pdf.output(dest="S").encode("latin-1")
     out = BytesIO(pdf_bytes)
